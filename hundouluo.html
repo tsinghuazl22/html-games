@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>像素魂斗罗 - 异形战争 (强制横屏版)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #202020;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            border: 4px solid #444;
+            background-color: #000;
+            /* 默认尺寸 */
+            width: 800px;
+            height: 450px;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- 强制横屏核心逻辑 --- */
+        /* 当处于竖屏且宽度小于高度时（手机竖着拿） */
+        @media screen and (orientation: portrait) and (max-width: 1024px) {
+            body {
+                /* 确保body撑满 */
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+            }
+            
+            #game-container {
+                /* 强制旋转90度 */
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                /* 交换宽高：宽变成屏幕的高，高变成屏幕的宽 */
+                width: 100vh; 
+                height: 100vw; 
+                /* 旋转中心居中，并旋转90度 */
+                transform: translate(-50%, -50%) rotate(90deg);
+                
+                /* 去掉边框让它看起来像全屏应用 */
+                border: none; 
+                box-shadow: none;
+            }
+            
+            /* 隐藏提示文字，节省空间 */
+            #instructions {
+                display: none;
+            }
+        }
+
+        /* 正常的横屏移动设备适配 */
+        @media screen and (orientation: landscape) and (max-width: 1024px) {
+            #game-container {
+                width: 100vw;
+                height: 100vh;
+                border: none;
+            }
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 16px;
+            text-shadow: 2px 2px 0 #000;
+            pointer-events: none;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding-right: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        #level-display {
+            font-weight: bold;
+            color: #f1c40f;
+        }
+
+        .boss-hp-bar {
+            display: none;
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border: 2px solid white;
+            z-index: 5;
+        }
+        .boss-hp-fill {
+            width: 100%;
+            height: 100%;
+            background: red;
+            transition: width 0.2s;
+        }
+
+        /* Pause Button */
+        #pause-btn {
+            pointer-events: auto;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid #fff;
+            border-radius: 5px;
+            padding: 5px 10px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        #pause-btn:active {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Mobile Controls - Gamepad Style */
+        .controls {
+            display: none; /* 默认隐藏，通过媒体查询显示 */
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 100%; /* 覆盖全屏以确保触摸区域正确，但事件只在按钮上触发 */
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* 显示控制器的条件：移动端 */
+        @media (max-width: 1024px) {
+            .controls { display: block; }
+        }
+
+        /* D-Pad Container */
+        .d-pad {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+            /* 半透明背景，方便定位 */
+            background: rgba(255, 255, 255, 0.05); 
+            border-radius: 50%;
+        }
+
+        /* D-Pad Buttons */
+        .d-btn {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(80, 80, 80, 0.6);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: rgba(255,255,255,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            z-index: 2;
+            border-radius: 10px;
+            backdrop-filter: blur(2px);
+        }
+        .d-btn:active {
+            background: rgba(255, 255, 255, 0.4);
+            color: #fff;
+        }
+
+        /* D-Pad Positions (Centered Cross) */
+        .d-up { top: 0; left: 50px; }
+        .d-down { bottom: 0; left: 50px; }
+        .d-left { top: 50px; left: 0; }
+        .d-right { top: 50px; right: 0; }
+        
+        /* Decorative Center */
+        .d-center {
+            position: absolute; top: 50px; left: 50px; width: 50px; height: 50px;
+            background: rgba(0,0,0,0.2);
+        }
+
+        /* Action Buttons (A/B) */
+        .action-buttons {
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            width: 180px;
+            height: 120px;
+            pointer-events: auto;
+        }
+
+        .act-btn {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 20px;
+            box-shadow: 0 4px 0 #333;
+            border: 2px solid rgba(255,255,255,0.4);
+            text-shadow: 1px 1px 0 #000;
+            user-select: none;
+            backdrop-filter: blur(2px);
+        }
+        .act-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #333;
+            background-color: rgba(255,255,255,0.3);
+        }
+        .act-btn span { font-size: 12px; font-weight: normal; opacity: 0.8; }
+
+        /* Layout: J (Shoot) left-bottom, K (Jump) right-top */
+        .btn-shoot { 
+            bottom: 0; 
+            left: 0; 
+            background: rgba(192, 57, 43, 0.6); /* Red */
+        }
+        .btn-jump { 
+            top: 0; 
+            right: 0; 
+            background: rgba(41, 128, 185, 0.6); /* Blue */
+        }
+
+        /* Pause Overlay */
+        #pause-overlay {
+            display: none; /* 默认隐藏 */
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            font-weight: bold;
+            letter-spacing: 5px;
+            text-shadow: 4px 4px 0 #000;
+            z-index: 50;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+        
+        <div id="ui-layer">
+            <div>
+                <span id="status-text">生命: <span id="lives">∞</span> | 分数: <span id="score">0</span></span>
+                <div id="instructions" style="margin-top:5px; font-size: 12px; color: #aaa;">
+                    WASD移动 / J射击 / K跳跃 / P暂停
+                </div>
+            </div>
+            <div style="display:flex; gap:15px; align-items:center;">
+                <div id="level-display">第 1 关</div>
+                <div id="pause-btn">|| 暂停</div>
+            </div>
+        </div>
+
+        <div class="boss-hp-bar" id="bossHpBar">
+            <div class="boss-hp-fill" id="bossHpFill"></div>
+        </div>
+        
+        <div id="pause-overlay">PAUSED</div>
+
+        <!-- Mobile Controls (Gamepad Style) -->
+        <div class="controls">
+            <div class="d-pad">
+                <div class="d-center"></div>
+                <div class="d-btn d-up" data-key="w">▲</div>
+                <div class="d-btn d-down" data-key="s">▼</div>
+                <div class="d-btn d-left" data-key="a">◀</div>
+                <div class="d-btn d-right" data-key="d">▶</div>
+            </div>
+            <div class="action-buttons">
+                <div class="act-btn btn-shoot" data-key="j">J<span>射击</span></div>
+                <div class="act-btn btn-jump" data-key="k">K<span>跳跃</span></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * 像素魂斗罗 - 强制横屏版
+ */
+
+const CUSTOM_BOSS_IMAGES = {
+    level1: '', level2: '', level3: '', level4: '', level5: ''
+};
+
+const bossImages = {};
+Object.keys(CUSTOM_BOSS_IMAGES).forEach(levelKey => {
+    const src = CUSTOM_BOSS_IMAGES[levelKey];
+    if (src) {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => { bossImages[levelKey] = img; };
+    }
+});
+
+// --- 音效管理器 ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const Sound = {
+    playTone: (freq, type, duration, vol = 0.1, attack = 0.001, decay = 0.1) => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + attack);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration + attack + decay);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration + attack + decay);
+    },
+    playNoise: (duration, vol = 0.1) => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const bufferSize = audioCtx.sampleRate * duration;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        noise.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start();
+    },
+    shoot: () => { Sound.playNoise(0.08, 0.08); Sound.playTone(400, 'square', 0.05, 0.04); },
+    jump: () => { 
+        Sound.playTone(200, 'square', 0.1, 0.08, 0.001, 0.05);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(350, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    },
+    enemyHit: () => { Sound.playTone(180, 'sawtooth', 0.05, 0.04); },
+    explosion: () => { Sound.playNoise(0.3, 0.2); Sound.playTone(80, 'sawtooth', 0.3, 0.1); },
+    playerDie: () => { Sound.playTone(60, 'square', 0.5, 0.1, 0.05, 0.4); Sound.playNoise(0.4, 0.15); },
+    levelStart: () => {
+        const now = audioCtx.currentTime;
+        const notes = [261.63, 329.63, 392.00]; 
+        notes.forEach((freq, i) => {
+            Sound.playTone(freq, 'square', 0.1, 0.08, 0.01, 0.05, now + i * 0.1);
+        });
+    },
+    win: () => {
+        const now = audioCtx.currentTime;
+        const notes = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50];
+        notes.forEach((freq, i) => {
+            Sound.playTone(freq, 'square', 0.15, 0.1, 0.01, 0.1, 0.001, 0.1);
+        });
+    },
+    pause: () => { Sound.playTone(600, 'square', 0.1, 0.1); Sound.playTone(600, 'square', 0.1, 0.1, 0.15); }
+};
+
+// Canvas Setup
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const levelEl = document.getElementById('level-display');
+const bossHpBar = document.getElementById('bossHpBar');
+const bossHpFill = document.getElementById('bossHpFill');
+const pauseOverlay = document.getElementById('pause-overlay');
+const pauseBtn = document.getElementById('pause-btn');
+
+// Game Constants
+const GRAVITY = 0.6;
+const FRICTION = 0.8;
+const PLAYER_SPEED = 4.5;
+const JUMP_FORCE = 14; 
+const DOUBLE_JUMP_FORCE = 12;
+const BULLET_SPEED = 12;
+const CAMERA_OFFSET_X = 200;
+const MAX_LEVELS = 5;
+const TILE_SIZE = 24; 
+
+// Game State
+let gameState = 'MENU'; 
+let isPaused = false;
+let currentLevel = 1;
+let score = 0;
+let cameraX = 0;
+let particles = [];
+let bullets = [];
+let enemyBullets = [];
+let enemies = [];
+let platforms = [];
+let frameCount = 0;
+let levelTransitionTimer = 0;
+let activeBackground = null;
+
+// Inputs
+const keys = {
+    w: false, s: false, a: false, d: false, j: false, k: false
+};
+
+// Player Object
+const player = {
+    x: 50, y: 100, w: TILE_SIZE, h: TILE_SIZE * 2, 
+    vx: 0, vy: 0, lives: 999, facingRight: true, isGrounded: false,
+    jumpCount: 0, maxJumps: 2, isInvulnerable: false, invulnerableTimer: 0,
+    shootCooldown: 0, isCrouching: false, animFrame: 0, animTimer: 0, 
+    
+    reset: function() {
+        this.x = 50; this.y = 100; this.vx = 0; this.vy = 0;
+        this.jumpCount = 0; this.isInvulnerable = true; this.invulnerableTimer = 120;
+    },
+    getShootAngle: function() {
+        let baseAngle = this.facingRight ? 0 : Math.PI;
+        if (keys.w) { 
+            if (keys.d) return -Math.PI / 4; 
+            if (keys.a) return -3 * Math.PI / 4; 
+            return -Math.PI / 2; 
+        } else if (keys.s) { 
+            if ((keys.d || keys.a) && !this.isGrounded) return this.facingRight ? Math.PI / 4 : 3 * Math.PI / 4; 
+            if (keys.d) return Math.PI / 4; 
+            if (keys.a) return 3 * Math.PI / 4; 
+        }
+        return baseAngle; 
+    },
+    getGunTip: function() {
+        let offsetX = this.facingRight ? this.w - 4 : 4;
+        let offsetY = this.isCrouching ? this.h - TILE_SIZE : this.h / 3;
+        const angle = this.getShootAngle();
+        const barrelLength = 16; 
+        const tipX = this.x + offsetX + Math.cos(angle) * barrelLength;
+        const tipY = this.y + offsetY + Math.sin(angle) * barrelLength;
+        return {x: tipX, y: tipY};
+    }
+};
+
+// Level Parameters
+let LEVEL_LENGTH = 4000;
+let GROUND_Y = 400;
+let BOSS_TRIGGER_X = 3600;
+
+// Boss Object
+const boss = {
+    x: 3800, y: 250, w: 120, h: 140, active: false, hp: 100, maxHp: 100,
+    timer: 0, vy: 2, color: '#8e44ad', flashTimer: 0, type: 'static', 
+    jumpCooldown: 0, tentacles: [], 
+    
+    init: function(level) {
+        this.maxHp = 100 + (level - 1) * 75; this.hp = this.maxHp;
+        this.active = false; this.x = 0; this.y = GROUND_Y - this.h; 
+        this.jumpCooldown = 0; this.tentacles = [];
+        
+        switch(level) {
+            case 1: this.type = 'static'; this.w = 100; this.h = 100; this.color = '#7f8c8d'; break;
+            case 2: this.type = 'jumper'; this.w = 120; this.h = 100; this.color = '#c0392b'; this.y = GROUND_Y - this.h; break;
+            case 3: 
+                this.type = 'tentacle'; this.w = 80; this.h = 80; this.y = 150; this.color = '#8e44ad';
+                for(let i=0; i<4; i++) this.tentacles.push({ angleOffset: (Math.PI/2) * i, segments: 10, length: 15 });
+                break;
+            case 4: this.type = 'spinner'; this.w = 100; this.h = 100; this.y = GROUND_Y - this.h; this.color = '#f39c12'; break;
+            case 5: this.type = 'final'; this.w = 140; this.h = 160; this.y = GROUND_Y - this.h - 50; this.color = '#e74c3c'; break;
+        }
+    }
+};
+
+// Backgrounds
+const bgPalettes = [
+    ['#2c3e50', '#34495e', '#5d6d7e'],
+    ['#1a5276', '#2980b9', '#5499c7'],
+    ['#4a235a', '#5b2c6f', '#7d3c98'],
+    ['#145a32', '#1e8449', '#27ae60'],
+    ['#641e16', '#922b21', '#c0392b']
+];
+
+// --- Input Handling ---
+
+function togglePause() {
+    if (gameState === 'PLAYING' || gameState === 'BOSS_FIGHT') {
+        isPaused = !isPaused;
+        pauseOverlay.style.display = isPaused ? 'flex' : 'none';
+        pauseBtn.innerText = isPaused ? '▶ 继续' : '|| 暂停';
+        Sound.pause();
+    }
+}
+
+pauseBtn.addEventListener('click', togglePause);
+pauseBtn.addEventListener('touchstart', (e) => { e.preventDefault(); togglePause(); });
+
+window.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if(key === 'p') { togglePause(); return; }
+    if(keys.hasOwnProperty(key)) {
+        if (key === 'k' && !keys.k) handleJump();
+        keys[key] = true;
+    }
+    if ((gameState === 'GAMEOVER' || gameState === 'WIN') && key === 'k') resetGameFull();
+    if (gameState === 'MENU' && key === 'k') resetGameFull();
+});
+
+window.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if(keys.hasOwnProperty(key)) keys[key] = false;
+});
+
+// Mobile Touch Controls (Works even with rotated container)
+const touchBtns = document.querySelectorAll('.d-btn, .act-btn');
+touchBtns.forEach(btn => {
+    btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const k = btn.getAttribute('data-key');
+        if (k === 'k' && !keys.k) handleJump();
+        keys[k] = true;
+        if(k === 'k' && (gameState === 'GAMEOVER' || gameState === 'WIN' || gameState === 'MENU')) resetGameFull();
+    });
+    btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        const k = btn.getAttribute('data-key');
+        keys[k] = false;
+    });
+});
+
+function handleJump() {
+    if (gameState !== 'PLAYING' && gameState !== 'BOSS_FIGHT') return;
+    if (isPaused) return;
+    if (player.jumpCount < player.maxJumps) {
+        player.vy = player.jumpCount === 0 ? -JUMP_FORCE : -DOUBLE_JUMP_FORCE;
+        player.jumpCount++;
+        player.isGrounded = false;
+        Sound.jump();
+        if (player.jumpCount === 2) createParticles(player.x + player.w/2, player.y + player.h, '#fff', 5);
+    }
+}
+
+// --- Classes ---
+class Bullet {
+    constructor(x, y, angle, speed, isPlayer, damage = 1) {
+        this.x = x; this.y = y;
+        this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+        this.r = 4; this.isPlayer = isPlayer; this.active = true; this.damage = damage;
+        this.color = isPlayer ? '#ffcc00' : '#ff0000';
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < cameraX - 50 || this.x > cameraX + canvas.width + 50 || this.y < -50 || this.y > canvas.height + 50) this.active = false;
+        platforms.forEach(p => {
+            if (checkRectCollision({x:this.x-this.r, y:this.y-this.r, w:this.r*2, h:this.r*2}, p)) {
+                this.active = false;
+                createParticles(this.x, this.y, this.color, 2);
+            }
+        });
+    }
+    draw() {
+        ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x - cameraX, this.y, this.r, 0, Math.PI * 2); ctx.fill();
+    }
+}
+
+class Enemy {
+    constructor(x, y, type) {
+        this.x = x; this.y = y; this.type = type;
+        this.w = TILE_SIZE * 1.5; 
+        this.h = type === 'runner' ? TILE_SIZE * 2 : TILE_SIZE * 1.5;
+        this.vx = type === 'runner' ? (-2 - (currentLevel * 0.5)) : 0;
+        this.vy = 0;
+        this.hp = type === 'runner' ? 2 + Math.floor(currentLevel/2) : 6 + currentLevel;
+        this.active = true; this.shootTimer = Math.random() * 100;
+        this.color = type === 'runner' ? '#27ae60' : '#7f8c8d';
+        this.animFrame = 0; this.animTimer = 0;
+    }
+    update() {
+        this.vy += GRAVITY; this.y += this.vy; this.isGrounded = false;
+        platforms.forEach(p => {
+            if (checkCollision(this, p)) {
+                if (this.vy > 0 && this.y + this.h - this.vy <= p.y) {
+                    this.y = p.y - this.h; this.vy = 0; this.isGrounded = true;
+                    if (this.type === 'runner') this.jumpCount = 0;
+                }
+            }
+        });
+        if (this.x > cameraX - 100 && this.x < cameraX + canvas.width + 100) {
+            if (this.type === 'runner') {
+                this.x += this.vx; this.animTimer++;
+                if (this.animTimer % 10 === 0) this.animFrame = (this.animFrame + 1) % 4; 
+                if(frameCount % (100 - currentLevel*5) === 0) this.vx *= -1; 
+                if(this.isGrounded && Math.random() < 0.005 * currentLevel) this.vy = -8;
+                if (Math.random() < 0.01 * currentLevel) {
+                    const angle = Math.atan2((player.y + player.h/2) - (this.y + this.h/2), (player.x + player.w/2) - (this.x + this.w/2));
+                    enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, angle, 5, false));
+                }
+            } else if (this.type === 'turret') {
+                this.shootTimer++;
+                let fireRate = Math.max(60, 120 - currentLevel * 10);
+                if (this.shootTimer > fireRate) {
+                    const angle = Math.atan2((player.y + player.h/2) - (this.y + this.h/2), (player.x + player.w/2) - (this.x + this.w/2));
+                    enemyBullets.push(new Bullet(this.x + this.w/2, this.y, angle, 6, false));
+                    this.shootTimer = 0;
+                }
+            }
+        }
+        if (this.y > canvas.height + 100) this.active = false;
+    }
+    draw() {
+        if (this.x < cameraX - 100 || this.x > cameraX + canvas.width + 100) return;
+        ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+        if (this.type === 'runner') { 
+            ctx.fillStyle = '#145a32'; ctx.fillRect(this.x - cameraX + 4, this.y + 4, this.w - 8, this.h - 8);
+            ctx.fillStyle = 'red'; ctx.fillRect(this.x - cameraX + (this.vx < 0 ? 4 : this.w - 10), this.y + 8, 6, 6);
+        } else if (this.type === 'turret') {
+            const angle = Math.atan2((player.y + player.h/2) - (this.y + this.h/2), (player.x + player.w/2) - (this.x + this.w/2));
+            ctx.save(); ctx.translate(this.x + this.w/2 - cameraX, this.y + this.h/2); ctx.rotate(angle);
+            ctx.fillStyle = '#555'; ctx.fillRect(0, -4, 20, 8);
+            ctx.fillStyle = 'orange'; ctx.fillRect(18, -2, 4, 4); ctx.restore();
+        }
+    }
+}
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y; this.vx = (Math.random() - 0.5) * 8; this.vy = (Math.random() - 0.5) * 8; this.life = 1.0; this.color = color;
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.life -= 0.05; }
+    draw() {
+        ctx.globalAlpha = Math.max(0, this.life); ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraX, this.y, 4, 4); ctx.globalAlpha = 1.0;
+    }
+}
+
+class BackgroundLayer {
+    constructor(speed, color, shapes) {
+        this.speed = speed; this.color = color; this.shapes = shapes; 
+    }
+    draw() {
+        ctx.fillStyle = this.color;
+        this.shapes.forEach(s => {
+            let drawX = s.x - (cameraX * this.speed);
+            while(drawX < -200) drawX += LEVEL_LENGTH; 
+            if (drawX < canvas.width + 200 && drawX > -200) {
+                ctx.fillRect(drawX, s.y, s.w, s.h);
+            }
+        });
+    }
+}
+
+// --- GAME LOGIC ---
+
+function resetGameFull() {
+    currentLevel = 1; score = 0; isPaused = false;
+    pauseOverlay.style.display = 'none';
+    pauseBtn.innerText = '|| 暂停';
+    Sound.levelStart();
+    initLevel(currentLevel);
+}
+
+function initLevel(level) {
+    player.reset();
+    bullets = []; enemyBullets = []; particles = []; enemies = []; platforms = [];
+    cameraX = 0; isPaused = false;
+    gameState = 'PLAYING';
+    levelEl.innerText = `第 ${level} 关`;
+    scoreEl.innerText = score;
+    boss.init(level);
+    bossHpBar.style.display = 'none';
+    generateLevel(level);
+    generateBackground(level);
+}
+
+function generateLevel(level) {
+    LEVEL_LENGTH = 3000 + (level * 500); 
+    BOSS_TRIGGER_X = LEVEL_LENGTH - 400;
+    // Ground
+    for (let i = 0; i < LEVEL_LENGTH; i += TILE_SIZE) {
+        let gapChance = 0.1 + (level * 0.02); 
+        if (i > 600 && i < BOSS_TRIGGER_X - 600 && Math.random() < gapChance) {
+            i += TILE_SIZE * (Math.floor(Math.random() * 2) + 1); continue;
+        }
+        platforms.push({x: i, y: GROUND_Y, w: TILE_SIZE, h: TILE_SIZE});
+    }
+    // Platforms & Enemies
+    let platformDensity = 300 - (level * 20); 
+    for (let i = 400; i < BOSS_TRIGGER_X - 200; i += platformDensity) {
+        let h = 150 + Math.random() * 150;
+        platforms.push({x: i, y: h, w: TILE_SIZE * 4, h: TILE_SIZE}); 
+        let spawnChance = 0.6 + (level * 0.05);
+        if (Math.random() < spawnChance) {
+            let type = Math.random() > 0.4 ? 'runner' : 'turret';
+            enemies.push(new Enemy(i + TILE_SIZE, h - TILE_SIZE * 2, type));
+        }
+        if (Math.random() < 0.4) enemies.push(new Enemy(i + 100, GROUND_Y - TILE_SIZE * 2, 'runner'));
+    }
+    // Boss Arena
+    for (let i = BOSS_TRIGGER_X - 100; i < LEVEL_LENGTH + 600; i+=TILE_SIZE) platforms.push({x: i, y: GROUND_Y, w: TILE_SIZE, h: TILE_SIZE});
+    platforms.push({x: BOSS_TRIGGER_X + 100, y: 280, w: TILE_SIZE*3, h: TILE_SIZE});
+    if (level >= 3) platforms.push({x: BOSS_TRIGGER_X + 300, y: 200, w: TILE_SIZE*3, h: TILE_SIZE});
+    if (level >= 4) platforms.push({x: BOSS_TRIGGER_X + 200, y: 150, w: TILE_SIZE*3, h: TILE_SIZE});
+}
+
+function generateBackground(level) {
+    activeBackground = [];
+    let colors = bgPalettes[(level - 1) % bgPalettes.length];
+    let shapes1 = [];
+    for(let i=0; i<LEVEL_LENGTH; i+=100) shapes1.push({x: i, y: 200 + Math.random()*100, w: 120, h: 300});
+    activeBackground.push(new BackgroundLayer(0.2, colors[0], shapes1));
+    let shapes2 = [];
+    for(let i=0; i<LEVEL_LENGTH; i+=150) if(Math.random() > 0.5) shapes2.push({x: i, y: 150 + Math.random()*50, w: 40, h: 400});
+    activeBackground.push(new BackgroundLayer(0.5, colors[1], shapes2));
+}
+
+function createParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) particles.push(new Particle(x, y, color));
+}
+function checkCollision(rect1, rect2) {
+    return (rect1.x < rect2.x + rect2.w && rect1.x + rect1.w > rect2.x && rect1.y < rect2.y + rect2.h && rect1.y + rect1.h > rect2.y);
+}
+function checkRectCollision(r1, r2) { return checkCollision(r1, r2); }
+
+// --- UPDATE & DRAW ---
+
+function updatePlayer() {
+    if (keys.a) { player.vx = -PLAYER_SPEED; player.facingRight = false; player.animTimer++; }
+    else if (keys.d) { player.vx = PLAYER_SPEED; player.facingRight = true; player.animTimer++; }
+    else { player.vx *= FRICTION; player.animTimer = 0; player.animFrame = 0; }
+    
+    if (player.animTimer > 0 && player.animTimer % 5 === 0) player.animFrame = (player.animFrame + 1) % 4;
+    player.isCrouching = keys.s;
+
+    if (keys.j && player.shootCooldown <= 0) {
+        Sound.shoot();
+        let angle = player.getShootAngle();
+        let tip = player.getGunTip();
+        const spread = 0.15; 
+        const offsets = [-2*spread, -spread, 0, spread, 2*spread];
+        offsets.forEach(offset => bullets.push(new Bullet(tip.x, tip.y, angle + offset, BULLET_SPEED, true)));
+        player.shootCooldown = 10;
+    }
+    if (player.shootCooldown > 0) player.shootCooldown--;
+
+    player.vy += GRAVITY; player.x += player.vx; player.y += player.vy;
+
+    player.isGrounded = false;
+    platforms.forEach(p => {
+        if (player.vy > 0 && player.y + player.h - player.vy <= p.y && player.y + player.h >= p.y && player.x + player.w > p.x && player.x < p.x + p.w) {
+                player.y = p.y - player.h; player.vy = 0; player.isGrounded = true; player.jumpCount = 0; 
+        }
+    });
+
+    if (player.y > canvas.height + 100) killPlayer();
+    if (player.isInvulnerable) { player.invulnerableTimer--; if (player.invulnerableTimer <= 0) player.isInvulnerable = false; }
+    if (player.x < cameraX) player.x = cameraX;
+    if (!boss.active && player.x > cameraX + CAMERA_OFFSET_X) cameraX = player.x - CAMERA_OFFSET_X;
+    if (!boss.active && player.x > BOSS_TRIGGER_X) startBossFight();
+}
+
+function startBossFight() {
+    boss.active = true; boss.x = cameraX + canvas.width + 50;
+    gameState = 'BOSS_FIGHT'; bossHpBar.style.display = 'block';
+}
+
+function updateBoss() {
+    if (!boss.active) return;
+    let targetX = cameraX + canvas.width - 150;
+    if (boss.x > targetX) { boss.x -= 2; return; }
+    boss.timer++;
+    
+    if (boss.type === 'static') boss.y = (GROUND_Y - boss.h) + Math.sin(boss.timer * 0.05) * 20;
+    else if (boss.type === 'jumper') {
+        if (boss.isGrounded) { boss.jumpCooldown--; if (boss.jumpCooldown <= 0) { boss.vy = -15; boss.jumpCooldown = 120; } }
+        boss.vy += GRAVITY; boss.y += boss.vy;
+        if (boss.y + boss.h > GROUND_Y) { boss.y = GROUND_Y - boss.h; boss.vy = 0; boss.isGrounded = true; }
+    } else if (boss.type === 'tentacle') {
+        boss.y = 100 + Math.sin(boss.timer * 0.05) * 30; boss.x = targetX + Math.cos(boss.timer * 0.03) * 50;
+    } else if (boss.type === 'spinner') boss.y = (GROUND_Y - boss.h) - 100 + Math.sin(boss.timer * 0.1) * 10;
+    else if (boss.type === 'final') boss.y = (GROUND_Y - boss.h) + Math.sin(boss.timer * 0.02) * 10;
+
+    let attackRate = Math.max(60, 100 - currentLevel * 10);
+    if (boss.timer % attackRate === 0) for(let i=-0.5; i<=0.5; i+=0.25) enemyBullets.push(new Bullet(boss.x, boss.y + boss.h/2, Math.PI + i, 6, false));
+    if (boss.timer % (attackRate - 20) === 0) {
+         const angle = Math.atan2((player.y + player.h/2) - (boss.y + boss.h/2), (player.x + player.w/2) - (boss.x));
+         enemyBullets.push(new Bullet(boss.x, boss.y + boss.h/2, angle, 8 + currentLevel, false));
+    }
+
+    bullets.forEach(b => {
+        if (b.active && checkRectCollision({x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2}, boss)) {
+            b.active = false; boss.hp -= 1; boss.flashTimer = 5;
+            createParticles(b.x, b.y, '#fff', 1); Sound.enemyHit();
+            if (boss.hp <= 0) destroyBoss();
+        }
+    });
+    if(boss.flashTimer > 0) boss.flashTimer--;
+    bossHpFill.style.width = (boss.hp / boss.maxHp * 100) + '%';
+}
+
+function destroyBoss() {
+    Sound.explosion(); createParticles(boss.x + boss.w/2, boss.y + boss.h/2, boss.color, 200);
+    boss.active = false; bossHpBar.style.display = 'none'; score += 5000;
+    if (currentLevel < MAX_LEVELS) {
+        gameState = 'LEVEL_TRANSITION'; levelTransitionTimer = 180; Sound.win();
+    } else {
+        gameState = 'WIN'; Sound.win();
+    }
+}
+
+function killPlayer() {
+    createParticles(player.x, player.y, player.color, 20); Sound.playerDie();
+    player.reset(); player.y = 0; player.x = Math.max(cameraX + 50, player.x - 100);
+}
+
+function update() {
+    if (isPaused) return;
+
+    if (gameState === 'LEVEL_TRANSITION') {
+        levelTransitionTimer--;
+        if (levelTransitionTimer <= 0) { currentLevel++; initLevel(currentLevel); }
+        return;
+    }
+
+    if (gameState !== 'PLAYING' && gameState !== 'BOSS_FIGHT') return;
+
+    updatePlayer();
+    if(gameState === 'BOSS_FIGHT') updateBoss();
+
+    bullets.forEach(b => b.update()); bullets = bullets.filter(b => b.active);
+    enemyBullets.forEach(b => b.update()); enemyBullets = enemyBullets.filter(b => b.active);
+
+    enemies.forEach(e => {
+        e.update();
+        bullets.forEach(b => {
+            if (b.active && e.active && checkRectCollision({x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2}, e)) {
+                b.active = false; e.hp -= b.damage;
+                createParticles(e.x + e.w/2, e.y + e.h/2, '#eee', 2); Sound.enemyHit();
+                if (e.hp <= 0) {
+                    e.active = false; createParticles(e.x, e.y, e.color, 10); Sound.explosion();
+                    score += 100; scoreEl.innerText = score;
+                }
+            }
+        });
+        if (e.active && !player.isInvulnerable && checkCollision(player, e)) killPlayer();
+    });
+    enemies = enemies.filter(e => e.active);
+
+    enemyBullets.forEach(b => {
+        if (b.active && !player.isInvulnerable && checkRectCollision({x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2}, player)) {
+            b.active = false; killPlayer();
+        }
+    });
+
+    particles.forEach(p => p.update()); particles = particles.filter(p => p.life > 0);
+    frameCount++;
+}
+
+function draw() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (activeBackground) activeBackground.forEach(layer => layer.draw());
+
+    if (gameState === 'MENU') {
+        ctx.fillStyle = 'white'; ctx.font = '40px Courier New'; ctx.textAlign = 'center';
+        ctx.fillText("魂斗罗: 异形战争", canvas.width/2, canvas.height/2 - 40);
+        ctx.font = '20px Courier New'; ctx.fillText("按 K 键 / A键 开始", canvas.width/2, canvas.height/2 + 20);
+        ctx.fillStyle = '#aaa'; ctx.fillText("WASD移动 / J射击 / K跳跃(可二段跳)", canvas.width/2, canvas.height/2 + 60);
+        return;
+    }
+
+    ctx.fillStyle = bgPalettes[(currentLevel-1)%bgPalettes.length][2];
+    platforms.forEach(p => {
+        if (p.x - cameraX < canvas.width && p.x + p.w - cameraX > 0) {
+            ctx.fillRect(p.x - cameraX, p.y, p.w, p.h);
+            ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(p.x - cameraX + 2, p.y + 2, p.w - 4, p.h - 4);
+            ctx.fillStyle = bgPalettes[(currentLevel-1)%bgPalettes.length][2];
+        }
+    });
+
+    if (gameState !== 'LEVEL_TRANSITION') {
+        drawPlayer(); enemies.forEach(e => e.draw());
+        bullets.forEach(b => b.draw()); enemyBullets.forEach(b => b.draw());
+        particles.forEach(p => p.draw()); drawBoss();
+    }
+
+    ctx.textAlign = 'center';
+    if (gameState === 'LEVEL_TRANSITION') {
+        ctx.fillStyle = 'yellow'; ctx.font = '40px Courier New';
+        ctx.fillText(`第 ${currentLevel} 关 完成!`, canvas.width/2, canvas.height/2);
+        ctx.font = '20px Courier New'; ctx.fillStyle = 'white';
+        ctx.fillText("准备进入下一关...", canvas.width/2, canvas.height/2 + 50);
+    }
+
+    if (gameState === 'WIN') {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#2ecc71'; ctx.font = '50px Courier New';
+        ctx.fillText("全关卡通关!", canvas.width/2, canvas.height/2);
+        ctx.fillStyle = 'white'; ctx.font = '20px Courier New';
+        ctx.fillText("最终得分: " + score, canvas.width/2, canvas.height/2 + 50);
+        ctx.fillText("按 K 重新开始", canvas.width/2, canvas.height/2 + 100);
+    }
+
+    if (isPaused && gameState === 'PLAYING') {
+    }
+}
+
+function drawPlayer() {
+    if (player.isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0) return; 
+    const x = player.x - cameraX; const y = player.y;
+    
+    ctx.fillStyle = '#3498db'; 
+    if (!player.isGrounded) { ctx.fillRect(x + 4, y + 30, 10, 14); ctx.fillRect(x + 16, y + 26, 8, 12); } 
+    else if (player.vx !== 0) { 
+        if (player.animFrame % 2 === 0) { ctx.fillRect(x + 2, y + 30, 8, 18); ctx.fillRect(x + 14, y + 30, 8, 18); } 
+        else { ctx.fillRect(x + 6, y + 30, 12, 18); }
+    } else { ctx.fillRect(x + 4, y + 30, 8, 18); ctx.fillRect(x + 14, y + 30, 8, 18); }
+    
+    ctx.fillStyle = '#e67e22'; ctx.fillRect(x + 4, y + 14, 16, 16);
+    ctx.fillStyle = '#3498db'; ctx.fillRect(x + 6, y + 16, 12, 10);
+    ctx.fillStyle = '#f1c40f'; ctx.fillRect(x + 6, y, 14, 8);
+    ctx.fillStyle = '#e67e22'; ctx.fillRect(x + 6, y + 6, 12, 8);
+    ctx.fillStyle = '#e74c3c'; ctx.fillRect(x + 4, y + 4, 16, 4);
+    
+    let gunTip = player.getGunTip();
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(x + 12, y + 20); ctx.lineTo(gunTip.x - cameraX, gunTip.y); ctx.stroke();
+}
+
+function drawBoss() {
+    if (!boss.active) return;
+    const x = boss.x - cameraX;
+    const levelKey = 'level' + currentLevel;
+    
+    if (bossImages[levelKey]) {
+        ctx.drawImage(bossImages[levelKey], x, boss.y, boss.w, boss.h);
+        if (boss.flashTimer > 0) {
+             ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
+             ctx.fillRect(x, boss.y, boss.w, boss.h); ctx.globalCompositeOperation = 'source-over';
+        }
+        return;
+    }
+
+    ctx.fillStyle = boss.flashTimer > 0 ? '#fff' : boss.color;
+
+    if (boss.type === 'static') {
+        ctx.fillRect(x, boss.y, boss.w, boss.h); ctx.fillStyle = 'red'; ctx.fillRect(x + 20, boss.y + 20, 30, 30);
+    } else if (boss.type === 'jumper') {
+        ctx.fillRect(x, boss.y + 20, boss.w, boss.h - 20); ctx.fillRect(x + 20, boss.y, boss.w - 40, 30); 
+        ctx.fillStyle = '#f1c40f'; ctx.fillRect(x + 10, boss.y + boss.h - 10, boss.w - 20, 10); 
+    } else if (boss.type === 'tentacle') {
+        ctx.beginPath(); ctx.arc(x + boss.w/2, boss.y + boss.h/2, boss.w/2, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.arc(x + boss.w/2, boss.y + boss.h/2, boss.w/4, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = boss.flashTimer > 0 ? '#fff' : '#8e44ad'; ctx.lineWidth = 8;
+        boss.tentacles.forEach((t, idx) => {
+            ctx.beginPath(); let startX = x + boss.w/2; let startY = boss.y + boss.h/2; ctx.moveTo(startX, startY);
+            let angleBase = t.angleOffset + Math.sin(boss.timer * 0.05 + idx) * 0.5;
+            for(let i=0; i<t.segments; i++) {
+                let segAngle = angleBase + Math.sin(boss.timer * 0.1 + i * 0.5) * 0.5;
+                startX += Math.cos(segAngle) * t.length; startY += Math.sin(segAngle) * t.length; ctx.lineTo(startX, startY);
+            }
+            ctx.stroke();
+        });
+    } else if (boss.type === 'final') {
+        let scale = 1 + Math.sin(boss.timer * 0.1) * 0.05; let centerX = x + boss.w/2; let centerY = boss.y + boss.h/2;
+        ctx.save(); ctx.translate(centerX, centerY); ctx.scale(scale, scale);
+        ctx.beginPath(); ctx.moveTo(0, -40); ctx.bezierCurveTo(-40, -80, -80, 20, 0, 80); ctx.bezierCurveTo(80, 20, 40, -80, 0, -40); ctx.fill();
+        ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(-20, 0);
+        ctx.moveTo(0, -40); ctx.lineTo(20, 10); ctx.stroke(); ctx.restore();
+    } else {
+        ctx.fillRect(x, boss.y, boss.w, boss.h); ctx.fillStyle = '#e74c3c'; ctx.fillRect(x + 20, boss.y + 40, boss.w - 40, 60);
+    }
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
